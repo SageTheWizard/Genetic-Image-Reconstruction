@@ -4,6 +4,7 @@ from tkinter import filedialog
 from PIL import Image, ImageTk, ImageDraw
 import pygame
 
+
 class ColorDictionary:
     colorList = []
     countList = []
@@ -88,7 +89,9 @@ def chooseClick():
     goButton.pack()
     mainWindow.mainloop()
 
-
+# mean absolute error
+# mean squared
+    # ^^^^^
 def beginGeneration():
     global ogImgPil, colorDictionary, generations
     screenDim = ogImgPil.size
@@ -99,24 +102,21 @@ def beginGeneration():
     pygame.init()
     pygameScreen = pygame.display.set_mode(screenDim, pygame.HWSURFACE)
     minimizeColors()
-    makeColorDictionary()
+    fitnessState = makeColorDictionary()
     generating = True
     changed = False
-    bestFit = 0.0
     bestImg = genImg.copy()
 
     while generating:
-        fitnessPercent = bestFit / float(screenDim[0] * screenDim[1] * 3)
+        if generations > 0:
+            genImg = bestImg.copy()
 
-        print fitnessPercent
+        genImg, moddedSquare = modifyImgTri(genImg, fitnessState)
+        genImg = genImg.copy()
+        modedBetter = getFitness(genImg, bestImg, moddedSquare)
 
-        genImg = bestImg.copy()
-        genImg = multiMod(genImg, fitnessPercent).copy()
-        currentFitness = getFitness(genImg)
-
-        if currentFitness > bestFit:
+        if modedBetter:
             bestImg = genImg.copy()
-            bestFit = currentFitness
             changed = True
 
         if changed:
@@ -125,13 +125,17 @@ def beginGeneration():
             pygameScreen.blit(pyImg, (0, 0))
             pygame.display.flip()
             changed = False
+
         generations += 1
         print generations
+        print fitnessState
+        if generations % 100 == 0:
+            fitnessState = getFitnessState(bestImg)
 
 
 def minimizeColors():
     global ogImgPil, pixelizedSettings, minimizedColorsPil
-    minimizedColorsPil = Image.new('RGB', ogImgPil.size, (255,255,255))
+    minimizedColorsPil = Image.new('RGB', ogImgPil.size, (0,0,0))
     avgR = 0
     avgG = 0
     avgB = 0
@@ -167,8 +171,11 @@ def minimizeColors():
 
 def makeColorDictionary():
     global minimizedColorsPil, colorDictionary, pixelizedSettings
-    counter = 0
+
     total = minimizedColorsPil.size[1] * minimizedColorsPil.size[0]
+    fitness = 0.0
+    defaultColor = 255
+
     for y in range(0, minimizedColorsPil.size[1], pixelizedSettings):
         for x in range(0, minimizedColorsPil.size[0], pixelizedSettings):
             pixel = ogImgPil.getpixel((x, y))
@@ -178,20 +185,60 @@ def makeColorDictionary():
             else:
                 colorDictionary.incCount(pixelindx)
 
+            fitness += (pixel[0] / float(defaultColor))
+            fitness += (pixel[1] / float(defaultColor))
+            fitness += (pixel[2] / float(defaultColor))
 
-def multiMod(imgToMod, fitness):
-    if fitness == 0.0:
-        fitness = .01
-    n = 300 / int(100 * fitness)
+    return fitness / float(total * 3)
 
-    if (n == 0):
-        n = 1
-    print n
-    nShapes = random.randint(1, n)
-    for i in range(0, nShapes):
-        imgToMod = modifyImgTri(imgToMod, fitness)
 
-    return imgToMod
+def getFitnessState(currentImg):
+    global ogImgPil
+    size = ogImgPil.size
+
+    fitnessSum = 0.0
+
+    for y in range(0, size[1]):
+        for x in range(0, size[0]):
+            ogR, ogG, ogB = ogImgPil.getpixel((x, y))
+            mR, mG, mB = currentImg.getpixel((x, y))
+
+            # I hate that I do this
+            if ogR == 0:
+                ogR = 1
+            if ogG == 0:
+                ogG = 1
+            if ogB == 0:
+                ogB = 1
+            if mR == 0:
+                mR = 1
+            if mG == 0:
+                mG = 1
+            if mB == 0:
+                mB = 1
+
+            if mR > mR:
+                fitnessSum += (mR / float(ogR))
+            elif ogR == mR:
+                fitnessSum += 1.0
+            else:
+                fitnessSum += (ogR / float(mR))
+
+            if ogG > mG:
+                fitnessSum += (mG / float(ogG))
+            elif ogG == mG:
+                fitnessSum += 1.0
+            else:
+                fitnessSum += (ogG / float(mG))
+
+            if ogB > mB:
+                fitnessSum += (mB / float(ogB))
+            elif ogB == mB:
+                fitnessSum += 1.0
+            else:
+                fitnessSum += (ogB / float(mB))
+
+    return fitnessSum / (size[0] * size[1] * 3)
 
 
 def modifyImgRect(imgToMod):
@@ -224,15 +271,16 @@ def modifyImgTri(imgToMod, fitness):
     startX = random.randint(0, sizeX)
     startY = random.randint(0, sizeY)
 
-    if fitness > 0.70 or generations > 500:
+    if fitness < 0.9:
+        rangeBaseX = int(startX - (startX * (1.0 - fitness * 1.05)))
+        rangeCeilingX = int(startX + (startX * (1.0 - fitness * 1.05)))
+        rangeBaseY = int(startY - (startY * (1.0 - fitness * 1.05)))
+        rangeCeilingY = int(startY + (startY * (1.0 - fitness * 1.05)))
+    else:
         rangeBaseX = int(startX - (startX * (1.0 - fitness)))
         rangeCeilingX = int(startX + (startX * (1.0 - fitness)))
         rangeBaseY = int(startY - (startY * (1.0 - fitness)))
         rangeCeilingY = int(startY + (startY * (1.0 - fitness)))
-    else:
-        rangeBaseX, rangeBaseY = (0, 0)
-        rangeCeilingX = sizeX
-        rangeCeilingY = sizeY
 
     if rangeBaseX < 0:
         rangeBaseX = 0
@@ -249,44 +297,60 @@ def modifyImgTri(imgToMod, fitness):
 
     endX = random.randint(rangeBaseX, rangeCeilingX)
     endY = random.randint(rangeBaseY, rangeCeilingY)
-    print colorDictionary.getcolor()
+
     rngR, rngG, rngB = colorDictionary.getcolor()
 
     draw = ImageDraw.Draw(imgToMod)
     draw.polygon([(startX, startY), (midX, midY), (endX, endY)], fill=(rngR, rngG, rngB), outline=(rngR, rngG, rngB))
 
-    return imgToMod
+    minX = min(startX, midX, endX)
+    maxX = max(startX, midX, endX)
+    minY = min(startY, midY, endY)
+    maxY = max(startY, midY, endY)
+
+    return imgToMod, ((minX, minY), (maxX, maxY))
 
 
-def getFitness(img):
-    fitnessSum = 0.0
+def getFitness(img, bestImg, modSquare):
     global ogImgPil
-    for y in range(0, ogImgPil.size[1]):
-        for x in range(0, ogImgPil.size[0]):
+    fitnessSum = 0.0
+    startX = modSquare[0][0]
+    endX = modSquare[1][0]
+
+    startY = modSquare[0][1]
+    endY = modSquare[1][1]
+
+    if startX == endX and endX < ogImgPil.size[0]:
+       endX += 1
+
+    if startY == endY and endY < ogImgPil.size[1]:
+        endY += 1
+
+    bestFitness = 0
+    modifiedFitness = 0
+
+    for y in range(startY, endY):
+        for x in range(startX, endX):
             ogR, ogG, ogB = ogImgPil.getpixel((x, y))
             mR, mG, mB = img.getpixel((x, y))
+            bR, bG, bB = bestImg.getpixel((x, y))
 
-            if ogR > mR:
-                fitnessSum += (mR / float(ogR))
-            elif ogR == mR:
-                fitnessSum += 1.0
-            else:
-                fitnessSum += (ogR / float(mR))
+            # Calculate Fitness Of Current Image Mean Squared
+            bestFitness += (pow((bR - ogR), 2) + pow((bG - ogG), 2) + pow((bB - ogB), 2))
+            modifiedFitness += (pow((mR - ogR), 2) + pow((mG - ogG), 2) + pow((mB - ogB), 2))
 
-            if ogG > mG:
-                fitnessSum += (mG / float(ogG))
-            elif ogG == mG:
-                fitnessSum += 1.0
-            else:
-                fitnessSum += (ogG / float(mG))
 
-            if ogB > mB:
-                fitnessSum += (mB / float(ogB))
-            elif ogB == mB:
-                fitnessSum += 1.0
-            else:
-                fitnessSum += (ogB / float(mB))
+    yDist = endY - startY
+    xDist = endX - startX
 
-    return fitnessSum
+    if xDist == 0:
+        xDist = 1
+    if yDist == 0:
+        yDist = 1
+
+    bestFitness /= (yDist * xDist)
+    modifiedFitness /= (yDist * xDist)
+
+    return bestFitness > modifiedFitness
 
 main()
